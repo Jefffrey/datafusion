@@ -136,9 +136,9 @@ pub async fn exec_from_repl(
             }
             Ok(line) => {
                 rl.add_history_entry(line.trim_end());
-                match exec_and_print(ctx, &print_options, line).await {
-                    Ok(_) => {}
-                    Err(err) => eprintln!("{:?}", err),
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = exec_wrapper(ctx, &print_options, line) => {}
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -157,6 +157,16 @@ pub async fn exec_from_repl(
     }
 
     rl.save_history(".history")
+}
+
+async fn exec_wrapper(
+    ctx: &mut SessionContext,
+    print_options: &PrintOptions,
+    sql: String,
+) {
+    if let Err(err) = exec_and_print(ctx, print_options, sql).await {
+        eprintln!("{:?}", err)
+    }
 }
 
 async fn exec_and_print(
