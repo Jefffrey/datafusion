@@ -40,16 +40,14 @@ async fn describe() -> Result<()> {
     let ctx = SessionContext::new();
     let testdata = datafusion::test_util::parquet_test_data();
 
-    let describe_record_batch = ctx
+    let df = ctx
         .read_parquet(
             &format!("{testdata}/alltypes_tiny_pages.parquet"),
             ParquetReadOptions::default(),
         )
-        .await?
-        .describe()
-        .await?
-        .collect()
         .await?;
+
+    let describe_record_batch = df.clone().describe().await?.collect().await?;
 
     #[rustfmt::skip]
         let expected = vec![
@@ -64,6 +62,30 @@ async fn describe() -> Result<()> {
         "| max        | 7299.0            | null     | 9.0                | 9.0                | 9.0                | 90.0               | 9.899999618530273  | 90.89999999999999  | 12/31/10        | 9          | 2010-12-31T04:09:13.860 | 2010.0             | 12.0              |",
         "| median     | 3649.0            | null     | 4.0                | 4.0                | 4.0                | 45.0               | 4.949999809265137  | 45.45              | null            | null       | null                    | 2009.0             | 7.0               |",
         "+------------+-------------------+----------+--------------------+--------------------+--------------------+--------------------+--------------------+--------------------+-----------------+------------+-------------------------+--------------------+-------------------+",
+    ];
+    assert_batches_eq!(expected, &describe_record_batch);
+
+    //add test case for only boolean boolean/binary column
+    let describe_record_batch = df
+        .select_columns(&vec!["bool_col"])?
+        .describe()
+        .await?
+        .collect()
+        .await?;
+
+    #[rustfmt::skip]
+        let expected = vec![
+        "+------------+----------+",
+        "| describe   | bool_col |",
+        "+------------+----------+",
+        "| count      | 7300     |",
+        "| null_count | 7300     |",
+        "| mean       | null     |",
+        "| std        | null     |",
+        "| min        | null     |",
+        "| max        | null     |",
+        "| median     | null     |",
+        "+------------+----------+",
     ];
     assert_batches_eq!(expected, &describe_record_batch);
 

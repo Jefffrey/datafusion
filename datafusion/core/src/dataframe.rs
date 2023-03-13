@@ -344,91 +344,70 @@ impl DataFrame {
         //collect recordBatch
         let describe_record_batch = vec![
             // count aggregation
-            self.clone()
-                .aggregate(
-                    vec![],
-                    original_schema_fields
-                        .clone()
-                        .map(|f| count(col(f.name())).alias(f.name()))
-                        .collect::<Vec<_>>(),
-                )?
-                .collect()
-                .await?,
+            self.clone().aggregate(
+                vec![],
+                original_schema_fields
+                    .clone()
+                    .map(|f| count(col(f.name())).alias(f.name()))
+                    .collect::<Vec<_>>(),
+            ),
             // null_count aggregation
-            self.clone()
-                .aggregate(
-                    vec![],
-                    original_schema_fields
-                        .clone()
-                        .map(|f| count(is_null(col(f.name()))).alias(f.name()))
-                        .collect::<Vec<_>>(),
-                )?
-                .collect()
-                .await?,
+            self.clone().aggregate(
+                vec![],
+                original_schema_fields
+                    .clone()
+                    .map(|f| count(is_null(col(f.name()))).alias(f.name()))
+                    .collect::<Vec<_>>(),
+            ),
             // mean aggregation
-            self.clone()
-                .aggregate(
-                    vec![],
-                    original_schema_fields
-                        .clone()
-                        .filter(|f| f.data_type().is_numeric())
-                        .map(|f| avg(col(f.name())).alias(f.name()))
-                        .collect::<Vec<_>>(),
-                )?
-                .collect()
-                .await?,
+            self.clone().aggregate(
+                vec![],
+                original_schema_fields
+                    .clone()
+                    .filter(|f| f.data_type().is_numeric())
+                    .map(|f| avg(col(f.name())).alias(f.name()))
+                    .collect::<Vec<_>>(),
+            ),
             // std aggregation
-            self.clone()
-                .aggregate(
-                    vec![],
-                    original_schema_fields
-                        .clone()
-                        .filter(|f| f.data_type().is_numeric())
-                        .map(|f| stddev(col(f.name())).alias(f.name()))
-                        .collect::<Vec<_>>(),
-                )?
-                .collect()
-                .await?,
+            self.clone().aggregate(
+                vec![],
+                original_schema_fields
+                    .clone()
+                    .filter(|f| f.data_type().is_numeric())
+                    .map(|f| stddev(col(f.name())).alias(f.name()))
+                    .collect::<Vec<_>>(),
+            ),
             // min aggregation
-            self.clone()
-                .aggregate(
-                    vec![],
-                    original_schema_fields
-                        .clone()
-                        .filter(|f| {
-                            !matches!(f.data_type(), DataType::Binary | DataType::Boolean)
-                        })
-                        .map(|f| min(col(f.name())).alias(f.name()))
-                        .collect::<Vec<_>>(),
-                )?
-                .collect()
-                .await?,
+            self.clone().aggregate(
+                vec![],
+                original_schema_fields
+                    .clone()
+                    .filter(|f| {
+                        !matches!(f.data_type(), DataType::Binary | DataType::Boolean)
+                    })
+                    .map(|f| min(col(f.name())).alias(f.name()))
+                    .collect::<Vec<_>>(),
+            ),
             // max aggregation
-            self.clone()
-                .aggregate(
-                    vec![],
-                    original_schema_fields
-                        .clone()
-                        .filter(|f| {
-                            !matches!(f.data_type(), DataType::Binary | DataType::Boolean)
-                        })
-                        .map(|f| max(col(f.name())).alias(f.name()))
-                        .collect::<Vec<_>>(),
-                )?
-                .collect()
-                .await?,
+            self.clone().aggregate(
+                vec![],
+                original_schema_fields
+                    .clone()
+                    .filter(|f| {
+                        !matches!(f.data_type(), DataType::Binary | DataType::Boolean)
+                    })
+                    .map(|f| max(col(f.name())).alias(f.name()))
+                    .collect::<Vec<_>>(),
+            ),
             // median aggregation
-            self.clone()
-                .aggregate(
-                    vec![],
-                    original_schema_fields
-                        .clone()
-                        .filter(|f| f.data_type().is_numeric())
-                        .map(|f| median(col(f.name())).alias(f.name()))
-                        .collect::<Vec<_>>(),
-                )?
-                .collect()
-                .await?,
+            self.clone().aggregate(
+                vec![],
+                original_schema_fields
+                    .clone()
+                    .filter(|f| f.data_type().is_numeric())
+                    .map(|f| median(col(f.name())).alias(f.name()))
+                    .collect::<Vec<_>>(),
+            ),
         ];
 
         // first column with function names
@@ -437,19 +416,27 @@ impl DataFrame {
         ))];
         for field in original_schema_fields {
             let mut array_datas = vec![];
-            for record_batch in describe_record_batch.iter() {
-                // safe unwrap since aggregate record batches should have at least 1 record
-                let column = record_batch.get(0).unwrap().column_by_name(field.name());
-                match column {
-                    Some(c) => {
-                        if field.data_type().is_numeric() {
-                            array_datas.push(cast(c, &DataType::Float64)?);
-                        } else {
-                            array_datas.push(cast(c, &DataType::Utf8)?);
+            for result in describe_record_batch.iter() {
+                match result {
+                    Ok(df) => {
+                        let record_batch = df.clone().collect().await?;
+                        if record_batch.len() == 1 {
+                            if let Some(column) =
+                                record_batch.get(0).unwrap().column_by_name(field.name())
+                            {
+                                if field.data_type().is_numeric() {
+                                    array_datas.push(cast(column, &DataType::Float64)?);
+                                } else {
+                                    array_datas.push(cast(column, &DataType::Utf8)?);
+                                }
+                            } else {
+                                array_datas
+                                    .push(Arc::new(StringArray::from_slice(["null"])));
+                            }
                         }
                     }
-                    //if None mean the column cannot be min/max aggregation
-                    None => {
+                    Err(_) => {
+                        //Handling error when only boolean/binary column, and in other cases
                         array_datas.push(Arc::new(StringArray::from_slice(["null"])));
                     }
                 }
