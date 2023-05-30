@@ -188,16 +188,22 @@ impl DFSchema {
         qualifier: Option<&TableReference>,
         name: &str,
     ) -> Result<Option<usize>> {
-        let mut matches = self
+        let matches = self
             .fields
             .iter()
             .enumerate()
-            .filter(|(_, field)| match (qualifier, &field.qualifier) {
+            .filter_map(|(index, field)| match (qualifier, &field.qualifier) {
                 // field to lookup is qualified.
                 // current field is qualified and not shared between relations, compare both
                 // qualifier and name.
-                (Some(q), Some(field_q)) => {
-                    q.resolved_eq(field_q) && field.name() == name
+                (Some(q), Some(field_q)) if field.name() == name => {
+                    let score = q.matching_parts(field_q);
+                    // score 0 means no match
+                    if score == 0 {
+                        None
+                    } else {
+                        Some((index, score))
+                    }
                 }
                 // field to lookup is qualified but current field is unqualified.
                 (Some(qq), None) => {
@@ -208,15 +214,53 @@ impl DFSchema {
                         Column {
                             relation: Some(r),
                             name: column_name,
-                        } => &r == qq && column_name == name,
-                        _ => false,
+                        } if column_name == name => {
+                            let score = r.matching_parts(qq);
+                            if score == 0 {
+                                None
+                            } else {
+                                Some((index, score))
+                            }
+                        }
+                        _ => None,
                     }
                 }
                 // field to lookup is unqualified, no need to compare qualifier
-                (None, Some(_)) | (None, None) => field.name() == name,
+                (None, Some(_)) | (None, None) if field.name() == name => {
+                    Some((index, 0))
+                }
+                _ => None,
             })
-            .map(|(idx, _)| idx);
-        Ok(matches.next())
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            Ok(None)
+        } else {
+            // safe unwrap as non-empty vec
+            let (best_index, best_score) =
+                matches.iter().max_by_key(|(_, score)| score).unwrap();
+            let best_column = self.fields[*best_index].qualified_column();
+            if matches
+                .iter()
+                .filter(|(index, _)| index != best_index)
+                .filter(|(_, score)| score == best_score)
+                .filter(|(index, _)| {
+                    // in case exact duplicates in schema
+                    let f = &self.fields[*index];
+                    f.qualified_column() != best_column
+                })
+                .count()
+                > 0
+            {
+                let q = qualifier.map(|tr| tr.to_owned_reference());
+                let field = Column::new(q, name);
+                let err = DataFusionError::SchemaError(SchemaError::AmbiguousReference {
+                    field,
+                });
+                Err(err)
+            } else {
+                Ok(Some(*best_index))
+            }
+        }
     }
 
     /// Find the index of the column with the given qualifier and name
@@ -1240,6 +1284,23 @@ mod tests {
             let schema = DFSchema::try_from_qualified_schema("t1", &test_schema_1())?;
             assert!(!schema.is_column_from_schema(&col)?);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ambiguous_index_of_column_by_name() -> Result<()> {
+        let mut schema = DFSchema::try_from_qualified_schema("s1.t", &test_schema_1())?;
+        let schema2 = DFSchema::try_from_qualified_schema("s2.t", &test_schema_1())?;
+        schema.merge(&schema2);
+
+        let err = schema
+            .index_of_column_by_name(Some(&TableReference::bare("t")), "c0")
+            .unwrap_err();
+        // TODO: error message inaccurate
+        let expected = "Schema error: Schema contains qualified field name t.c0 \
+        and unqualified field name c0 which would be ambiguous";
+        assert_eq!(err.to_string(), expected);
 
         Ok(())
     }

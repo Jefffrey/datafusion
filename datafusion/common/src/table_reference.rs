@@ -214,6 +214,21 @@ impl<'a> TableReference<'a> {
         }
     }
 
+    pub fn matching_parts(&self, other: &Self) -> usize {
+        if self.resolved_eq(other) {
+            // resolved_eq guarantees can't have case where schema mismatches but catalog matches
+            // so overall part match check is valid
+            let part_conds = [
+                self.schema().is_some() && self.schema() == other.schema(),
+                self.catalog().is_some() && self.catalog() == other.catalog(),
+            ];
+            // table guaranteed to match due to resolved_eq
+            part_conds.into_iter().filter(|&b| b).count() + 1
+        } else {
+            0
+        }
+    }
+
     /// Given a default catalog and schema, ensure this table reference is fully resolved
     pub fn resolve(
         self,
