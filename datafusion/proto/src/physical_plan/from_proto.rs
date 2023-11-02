@@ -23,6 +23,9 @@ use std::sync::Arc;
 
 use arrow::compute::SortOptions;
 use datafusion::arrow::datatypes::Schema;
+use datafusion::datasource::file_format::csv::CsvSink;
+use datafusion::datasource::file_format::json::JsonSink;
+use datafusion::datasource::file_format::parquet::ParquetSink;
 use datafusion::datasource::listing::{FileRange, PartitionedFile};
 use datafusion::datasource::object_store::ObjectStoreUrl;
 use datafusion::datasource::physical_plan::FileScanConfig;
@@ -695,5 +698,30 @@ impl TryFrom<&protobuf::Statistics> for Statistics {
             // No column statistic (None) is encoded with empty array
             column_statistics: s.column_stats.iter().map(|s| s.into()).collect(),
         })
+    }
+}
+
+#[cfg(feature = "parquet")]
+impl TryFrom<&protobuf::ParquetSink> for ParquetSink {
+    type Error = DataFusionError;
+
+    fn try_from(value: &protobuf::ParquetSink) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
+impl TryFrom<&protobuf::CsvSink> for CsvSink {
+    type Error = DataFusionError;
+
+    fn try_from(value: &protobuf::CsvSink) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
+impl TryFrom<&protobuf::JsonSink> for JsonSink {
+    type Error = DataFusionError;
+
+    fn try_from(value: &protobuf::JsonSink) -> Result<Self, Self::Error> {
+        todo!()
     }
 }

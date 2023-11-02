@@ -28,8 +28,15 @@ use crate::protobuf::{
     ScalarValue,
 };
 
-use datafusion::datasource::listing::{FileRange, PartitionedFile};
-use datafusion::datasource::physical_plan::FileScanConfig;
+use datafusion::datasource::{
+    file_format::{csv::CsvSink, parquet::ParquetSink},
+    physical_plan::FileScanConfig,
+};
+use datafusion::datasource::{
+    file_format::{json::JsonSink, write::FileWriterMode},
+    listing::{FileRange, PartitionedFile},
+    physical_plan::FileSinkConfig,
+};
 use datafusion::logical_expr::BuiltinScalarFunction;
 use datafusion::physical_expr::expressions::{GetFieldAccessExpr, GetIndexedFieldExpr};
 use datafusion::physical_expr::window::{NthValueKind, SlidingAggregateWindowExpr};
@@ -50,7 +57,15 @@ use datafusion::physical_plan::{
     AggregateExpr, ColumnStatistics, PhysicalExpr, Statistics, WindowExpr,
 };
 use datafusion_common::{
-    internal_err, not_impl_err, stats::Precision, DataFusionError, JoinSide, Result,
+    file_options::{
+        arrow_writer::ArrowWriterOptions, avro_writer::AvroWriterOptions,
+        csv_writer::CsvWriterOptions, json_writer::JsonWriterOptions,
+        parquet_writer::ParquetWriterOptions,
+    },
+    internal_err, not_impl_err,
+    parsers::CompressionTypeVariant,
+    stats::Precision,
+    DataFusionError, FileTypeWriterOptions, JoinSide, Result,
 };
 
 impl TryFrom<Arc<dyn AggregateExpr>> for protobuf::PhysicalExprNode {
@@ -788,5 +803,146 @@ impl TryFrom<PhysicalSortExpr> for protobuf::PhysicalSortExprNode {
             asc: !sort_expr.options.descending,
             nulls_first: sort_expr.options.nulls_first,
         })
+    }
+}
+
+#[cfg(feature = "parquet")]
+impl TryFrom<&ParquetSink> for protobuf::ParquetSink {
+    type Error = DataFusionError;
+
+    fn try_from(value: &ParquetSink) -> Result<Self, Self::Error> {
+        Ok(Self {
+            config: Some(value.config().try_into()?),
+        })
+    }
+}
+
+impl TryFrom<&CsvSink> for protobuf::CsvSink {
+    type Error = DataFusionError;
+
+    fn try_from(value: &CsvSink) -> Result<Self, Self::Error> {
+        Ok(Self {
+            config: Some(value.config().try_into()?),
+        })
+    }
+}
+
+impl TryFrom<&JsonSink> for protobuf::JsonSink {
+    type Error = DataFusionError;
+
+    fn try_from(value: &JsonSink) -> Result<Self, Self::Error> {
+        Ok(Self {
+            config: Some(value.config().try_into()?),
+        })
+    }
+}
+
+impl TryFrom<&FileSinkConfig> for protobuf::FileSinkConfig {
+    type Error = DataFusionError;
+
+    fn try_from(conf: &FileSinkConfig) -> Result<Self, Self::Error> {
+        let writer_mode: protobuf::FileWriterMode = conf.writer_mode.into();
+        let file_groups = conf
+            .file_groups
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>>>()?;
+        let table_paths = conf
+            .table_paths
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let table_partition_cols = conf
+            .table_partition_cols
+            .iter()
+            .map(|(name, data_type)| {
+                Ok(protobuf::PartitionColumn {
+                    name: name.to_owned(),
+                    arrow_type: Some(data_type.try_into()?),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let file_type_writer_options = &conf.file_type_writer_options;
+        Ok(Self {
+            object_store_url: conf.object_store_url.to_string(),
+            file_groups,
+            table_paths,
+            output_schema: Some(conf.output_schema.as_ref().try_into()?),
+            table_partition_cols,
+            writer_mode: writer_mode.into(),
+            single_file_output: conf.single_file_output,
+            unbounded_input: conf.unbounded_input,
+            overwrite: conf.overwrite,
+            file_type_writer_options: Some(file_type_writer_options.try_into()?),
+        })
+    }
+}
+
+impl From<FileWriterMode> for protobuf::FileWriterMode {
+    fn from(value: FileWriterMode) -> Self {
+        match value {
+            FileWriterMode::Append => Self::Append,
+            FileWriterMode::Put => Self::Put,
+            FileWriterMode::PutMultipart => Self::PutMultipart,
+        }
+    }
+}
+
+impl TryFrom<&FileTypeWriterOptions> for protobuf::FileTypeWriterOptions {
+    type Error = DataFusionError;
+
+    fn try_from(opts: &FileTypeWriterOptions) -> Result<Self, Self::Error> {
+        let file_type = match opts {
+            FileTypeWriterOptions::Parquet(ParquetWriterOptions { writer_options }) => {
+                protobuf::file_type_writer_options::FileType::ParquetOptions(
+                    protobuf::ParquetWriterOptions { options: todo!() },
+                )
+            }
+            FileTypeWriterOptions::CSV(CsvWriterOptions {
+                writer_options,
+                compression,
+            }) => {
+                let compression: protobuf::CompressionTypeVariant = compression.into();
+                protobuf::file_type_writer_options::FileType::CsvOptions(
+                    protobuf::CsvWriterOptions {
+                        options: todo!(),
+                        compression: compression.into(),
+                    },
+                )
+            }
+            FileTypeWriterOptions::JSON(JsonWriterOptions { compression }) => {
+                let compression: protobuf::CompressionTypeVariant = compression.into();
+                protobuf::file_type_writer_options::FileType::JsonOptions(
+                    protobuf::JsonWriterOptions {
+                        compression: compression.into(),
+                    },
+                )
+            }
+            FileTypeWriterOptions::Avro(AvroWriterOptions {}) => {
+                protobuf::file_type_writer_options::FileType::AvroOptions(
+                    protobuf::AvroWriterOptions {},
+                )
+            }
+            FileTypeWriterOptions::Arrow(ArrowWriterOptions {}) => {
+                protobuf::file_type_writer_options::FileType::ArrowOptions(
+                    protobuf::ArrowWriterOptions {},
+                )
+            }
+        };
+        Ok(Self {
+            file_type: Some(file_type),
+        })
+    }
+}
+
+impl From<&CompressionTypeVariant> for protobuf::CompressionTypeVariant {
+    fn from(value: &CompressionTypeVariant) -> Self {
+        match value {
+            CompressionTypeVariant::GZIP => Self::Gzip,
+            CompressionTypeVariant::BZIP2 => Self::Bzip2,
+            CompressionTypeVariant::XZ => Self::Xz,
+            CompressionTypeVariant::ZSTD => Self::Zstd,
+            CompressionTypeVariant::UNCOMPRESSED => Self::Uncompressed,
+        }
     }
 }

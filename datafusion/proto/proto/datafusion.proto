@@ -1130,7 +1130,102 @@ message PhysicalPlanNode {
     SortPreservingMergeExecNode sort_preserving_merge = 21;
     NestedLoopJoinExecNode nested_loop_join = 22;
     AnalyzeExecNode analyze = 23;
+    ParquetSinkExecNode parquet_sink = 24;
+    CsvSinkExecNode csv_sink = 25;
+    JsonSinkExecNode json_sink = 26;
   }
+}
+
+enum FileWriterMode {
+  APPEND = 0;
+  PUT = 1;
+  PUT_MULTIPART = 2;
+}
+
+enum CompressionTypeVariant {
+  GZIP = 0;
+  BZIP2 = 1;
+  XZ = 2;
+  ZSTD = 3;
+  UNCOMPRESSED = 4;
+}
+
+message PartitionColumn {
+  string name = 1;
+  ArrowType arrow_type = 2;
+}
+
+message FileTypeWriterOptions {
+  oneof FileType {
+    ParquetWriterOptions parquet_options = 1;
+    CsvWriterOptions csv_options = 2;
+    JsonWriterOptions json_options = 3;
+    AvroWriterOptions avro_options = 4;
+    ArrowWriterOptions arrow_options = 5;
+  }
+}
+
+message ParquetWriterOptions {
+  map<string, string> options = 1;
+}
+
+message CsvWriterOptions {
+  map<string, string> options = 1;
+  CompressionTypeVariant compression = 2;
+}
+
+message JsonWriterOptions {
+  CompressionTypeVariant compression = 1;
+}
+
+message AvroWriterOptions {}
+
+message ArrowWriterOptions {}
+
+message FileSinkConfig {
+  string object_store_url = 1;
+  repeated PartitionedFile file_groups = 2;
+  repeated string table_paths = 3;
+  Schema output_schema = 4;
+  repeated PartitionColumn table_partition_cols = 5;
+  FileWriterMode  writer_mode = 6;
+  bool single_file_output = 7;
+  bool unbounded_input = 8;
+  bool overwrite = 9;
+  FileTypeWriterOptions file_type_writer_options = 10;  
+}
+
+message ParquetSink {
+  FileSinkConfig config = 1;
+}
+
+message CsvSink {
+  FileSinkConfig config = 1;
+}
+
+message JsonSink {
+  FileSinkConfig config = 1;
+}
+
+message ParquetSinkExecNode {
+  PhysicalPlanNode input = 1;
+  ParquetSink sink = 2;
+  Schema sink_schema = 3;
+  PhysicalSortExprNodeCollection sort_order = 4;
+}
+
+message CsvSinkExecNode {
+  PhysicalPlanNode input = 1;
+  CsvSink sink = 2;
+  Schema sink_schema = 3;
+  PhysicalSortExprNodeCollection sort_order = 4;
+}
+
+message JsonSinkExecNode {
+  PhysicalPlanNode input = 1;
+  JsonSink sink = 2;
+  Schema sink_schema = 3;
+  PhysicalSortExprNodeCollection sort_order = 4;
 }
 
 message PhysicalExtensionNode {

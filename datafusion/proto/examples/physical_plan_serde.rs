@@ -22,10 +22,24 @@ use datafusion_proto::bytes::{physical_plan_from_bytes, physical_plan_to_bytes};
 #[tokio::main]
 async fn main() -> Result<()> {
     let ctx = SessionContext::new();
-    ctx.register_csv("t1", "testdata/test.csv", CsvReadOptions::default())
+    ctx.sql(
+        "CREATE EXTERNAL TABLE sink (
+                a1  VARCHAR NOT NULL,
+                a2  INT NOT NULL
+            )
+            STORED AS CSV
+            WITH HEADER ROW
+            OPTIONS ('UNBOUNDED' 'TRUE')
+            LOCATION '/home/jeffrey/Downloads/sink.csv'",
+    )
+    .await?;
+    let df = ctx
+        .sql(
+            "INSERT INTO sink
+            SELECT 'a' as a1, 2 as a2",
+        )
         .await?;
-    let dataframe = ctx.table("t1").await?;
-    let physical_plan = dataframe.create_physical_plan().await?;
+    let physical_plan = df.create_physical_plan().await?;
     let bytes = physical_plan_to_bytes(physical_plan.clone())?;
     let physical_round_trip = physical_plan_from_bytes(&bytes, &ctx)?;
     assert_eq!(
