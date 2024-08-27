@@ -33,7 +33,7 @@ arrow = "34.0.0"
 async-trait = "0.1.41"
 clap = { version = "3", features = ["derive", "cargo"] }
 datafusion = { path = "../datafusion/core", version = "19.0.0" }
-dirs = "4.0.0"
+dirs = "5.0.1"
 env_logger = "0.9"
 mimalloc = { version = "0.1", default-features = false }
 object_store = { version = "0.5.4", features = ["aws", "gcp"] }
