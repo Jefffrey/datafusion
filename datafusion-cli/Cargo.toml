@@ -31,7 +31,7 @@ readme = "README.md"
 [dependencies]
 arrow = "34.0.0"
 async-trait = "0.1.41"
-clap = { version = "3", features = ["derive", "cargo"] }
+clap = { version = "4", features = ["derive", "cargo"] }
 datafusion = { path = "../datafusion/core", version = "19.0.0" }
 dirs = "4.0.0"
 env_logger = "0.9"
